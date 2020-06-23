@@ -4,9 +4,9 @@ signed main()
     srandom(time(0));
 
     /*パラメータ*/
-    double R = 0.5; //情報ビット数/伝送ビット数
+    double R = 0.5; //コードレート
 
-    int LIMIT_REPEAT_NUM = 3000;
+    int LIMIT_REPEAT_NUM = 1000000;
 
     int CODE_LENGTH = 1024;
     int CRC_LENGTH = 16;
@@ -15,7 +15,7 @@ signed main()
     int INFO_LENGTH = CRCINFO_LENGTH - CRC_LENGTH;
     int LIST_LENGTH = 1;
 
-    double Rate = double(INFO_LENGTH) / CODE_LENGTH; //CRCを除去したときの伝送レート
+    double Rate = double(INFO_LENGTH) / CODE_LENGTH; //実行ビットレート
 
     /*パラメータ-end*/
 
@@ -142,6 +142,7 @@ signed main()
             /*Decoder*/
             CASCL_Decoder *Decoder;
             Decoder = new CASCL_Decoder(CODE_LENGTH, CRC_LENGTH, INFO_LENGTH, LIST_LENGTH, EstimatedCRCInformation, isFrozen, BitInverse, ReceivedLLR);
+            delete Decoder;
             /*Decoder-end*/
 
             /*Count*/
@@ -149,6 +150,8 @@ signed main()
             /*Count-end*/
 
             loopNum++;
+            if (loopNum >= 1000 && flameError >= 100)
+                break;
         }
         /*Loop-end*/
 
