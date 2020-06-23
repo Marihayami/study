@@ -6,10 +6,10 @@ signed main()
     /*パラメータ*/
     double R = 0.5; //情報ビット数/伝送ビット数
 
-    int LIMIT_REPEAT_NUM = 1000;
+    int LIMIT_REPEAT_NUM = 3000;
 
     int CODE_LENGTH = 1024;
-    int CRC_LENGTH = 0;
+    int CRC_LENGTH = 16;
     int CRCINFO_LENGTH = CODE_LENGTH * R;
     int FROZEN_LENGTH = CODE_LENGTH - CRCINFO_LENGTH;
     int INFO_LENGTH = CRCINFO_LENGTH - CRC_LENGTH;
@@ -57,7 +57,7 @@ signed main()
     printf("LIST_LENGTH: %d\n", LIST_LENGTH);
     printf("FROZEN_LENGTH: %d\n", FROZEN_LENGTH);
     printf("INFO_LENGTH: %d\n", INFO_LENGTH);
-    printf("Rate: %.2f\n", Rate);
+    printf("Rate: %f\n", Rate);
     printf("LIMIT_REPEAT_NUM: %d\n", LIMIT_REPEAT_NUM);
     printf("SN_MIN: %.2f\n", SN_MIN);
     printf("SN_MAX: %.2f\n", SN_MAX);

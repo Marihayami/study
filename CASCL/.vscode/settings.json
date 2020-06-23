@@ -69,5 +69,6 @@
         "typeinfo": "cpp",
         "valarray": "cpp",
         "hashtable": "cpp"
-    }
+    },
+    "python.pythonPath": "/usr/bin/python"
 }

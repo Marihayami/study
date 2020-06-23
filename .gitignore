@@ -3,4 +3,7 @@ all
 bits
 LLR
 Makefile
-.gitiginore
+CASCL/.vscode/settings.json
+CASCL/all
+.gitignore
+CASCL/out.txt
