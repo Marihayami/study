@@ -4,11 +4,19 @@ signed main()
     srandom(time(0));
 
     /*パラメータ*/
+    double R = 0.5; //情報ビット数/伝送ビット数
+
     int LIMIT_REPEAT_NUM = 1000;
+
     int CODE_LENGTH = 1024;
     int CRC_LENGTH = 0;
-    int INFO_LENGTH = 512;
+    int CRCINFO_LENGTH = CODE_LENGTH * R;
+    int FROZEN_LENGTH = CODE_LENGTH - CRCINFO_LENGTH;
+    int INFO_LENGTH = CRCINFO_LENGTH - CRC_LENGTH;
     int LIST_LENGTH = 1;
+
+    double Rate = double(INFO_LENGTH) / CODE_LENGTH; //CRCを除去したときの伝送レート
+
     /*パラメータ-end*/
 
     /*宣言*/
@@ -21,10 +29,9 @@ signed main()
     /*宣言-end*/
 
     /*定義*/
-    int M = 2;      //変調多値数
-    int Ns = 1;     //1シンボルあたりのサンプル数
-    double A = 1;   //振幅
-    double R = 0.5; //システム全体の符号化率
+    int M = 2;    //変調多値数
+    int Ns = 1;   //1シンボルあたりのサンプル数
+    double A = 1; //振幅
     double SN_WIDTH = 0.25;
     /*定義-end*/
 
@@ -46,10 +53,11 @@ signed main()
     /*パラメータ出力*/
     printf("CODE_LENGTH: %d\n", CODE_LENGTH);
     printf("CRC_LENGTH: %d\n", CRC_LENGTH);
-    printf("INFO_LENGTH: %d\n", INFO_LENGTH);
+    printf("CRCINFO_LENGTH: %d\n", CRCINFO_LENGTH);
     printf("LIST_LENGTH: %d\n", LIST_LENGTH);
-    printf("FROZEN_LENGTH: %d\n", CODE_LENGTH - INFO_LENGTH - CRC_LENGTH);
-    printf("R: %.2f\n", R);
+    printf("FROZEN_LENGTH: %d\n", FROZEN_LENGTH);
+    printf("INFO_LENGTH: %d\n", INFO_LENGTH);
+    printf("Rate: %.2f\n", Rate);
     printf("LIMIT_REPEAT_NUM: %d\n", LIMIT_REPEAT_NUM);
     printf("SN_MIN: %.2f\n", SN_MIN);
     printf("SN_MAX: %.2f\n", SN_MAX);
@@ -71,7 +79,7 @@ signed main()
         bitError = 0;
         flameError = 0;
         EbN0 = pow(10.0, EbN0dB / 10.0);
-        standartDeviation = sqrt(A * A * Ns / (2 * R * log2(M) * EbN0));
+        standartDeviation = sqrt(A * A * Ns / (2 * (Rate)*log2(M) * EbN0));
         /*各ループ初期設定-end*/
 
         /*各チャネル特性を取得*/
@@ -81,7 +89,7 @@ signed main()
 
         /*凍結ビット決定*/
         vector<bool> isFrozen(CODE_LENGTH);
-        generateFrozenArray(CODE_LENGTH, CODE_LENGTH - INFO_LENGTH - CRC_LENGTH, isFrozen, ChannelLLR);
+        generateFrozenArray(CODE_LENGTH, FROZEN_LENGTH, isFrozen, ChannelLLR);
         /*凍結ビット決定-end*/
 
         /*InformationCount作成*/
@@ -94,10 +102,10 @@ signed main()
         {
             /*配列宣言*/
             vector<bool> Information(INFO_LENGTH);
-            vector<bool> CRCInformation(INFO_LENGTH + CRC_LENGTH);
+            vector<bool> CRCInformation(CRCINFO_LENGTH);
             vector<bool> InputArray(CODE_LENGTH);
             vector<bool> EncodedArray(CODE_LENGTH);
-            vector<bool> EstimatedCRCInformation(INFO_LENGTH + CRC_LENGTH);
+            vector<bool> EstimatedCRCInformation(CRCINFO_LENGTH);
             vector<double> ReceivedLLR(CODE_LENGTH);
             vector<pair<double, double>> SentSymbol(CODE_LENGTH);
             vector<pair<double, double>> ReceivedSymbol(CODE_LENGTH);
