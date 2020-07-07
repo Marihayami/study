@@ -11,15 +11,15 @@ pair<double, double> scalarQuotient(pair<double, double>, double);
 void awgn(int, double, vector<pair<double, double>>, vector<pair<double, double>> &);
 void bpskModulation(int, double, vector<bool>, vector<pair<double, double>> &);
 void bpskDemodulation(int, double, vector<pair<double, double>>, vector<double> &);
-void crcEncode(int, int, int, vector<bool> &);
+void crcEncode(vector<bool> &, vector<int>, vector<int>, vector<int>);
 void errorCount(int, double &, double &, vector<bool>, vector<bool>);
 void generateBitInverse(int, vector<int> &);
 void generateChanellLLR(int, double, vector<double> &);
 void generateFrozenArray(int, int, vector<bool> &, vector<double>);
-void generateInformationArray(int, int, vector<bool> &, vector<bool> &);
+void generateInformationArray(vector<bool> &, vector<bool> &, vector<int>, vector<int>);
 void generateInformationCount(int, vector<bool>, vector<int> &);
 void generateInputArray(int, vector<bool>, vector<bool> &, vector<bool>, vector<int>);
-void initializeCRC(int, int &);
+void initializeCRC(vector<int>, vector<int> &);
 void polarEncode(int, vector<bool>, vector<bool> &, vector<int>);
 bool boolSum(bool, bool);
 bool checkCRC(int, int, int, vector<bool>);
@@ -29,14 +29,29 @@ double bpskLLR(double, pair<double, double>);
 double complexNorm(pair<double, double>);
 class CASCL_Decoder
 {
-    int stageNum;
-    int crcPolynomial;
+    int SEGMENT_LENGTH;
+    int crcNum;
+    int infoNum;
+
+    int STAGE_LENGTH;
     int CODE_LENGTH;
     int CRC_LENGTH;
     int INFO_LENGTH;
     int LIST_LENGTH;
+
+    vector<bool> CRCInformation;
     vector<bool> isFrozen;
     vector<int> BitInverse;
+
+    vector<int> CRC_LENGTHS;
+    vector<int> crcPolynomial;
+    vector<int> crcPosition;
+    vector<int> INFO_LENGTHS;
+
+    vector<double> Boundary;
+
+    vector<vector<vector<bool>>> Codeword;
+
     stack<int> inactivePathIndices;
     vector<bool> activePath;
     vector<vector<vector<vector<double>>>> arrayPointer_P;
@@ -49,15 +64,13 @@ class CASCL_Decoder
     vector<vector<int>> arrayReferenceCount_C;
 
 public:
-    CASCL_Decoder(int CODE_LENGTH_COPY, int CRC_LENGTH_COPY, int INFO_LENGTH_COPY, int LIST_LENGTH_COPY, vector<bool> &EstimatedCRCInfo, vector<bool> isFrozen_COPY, vector<bool> InputArray, vector<int> BitInverse_COPY, vector<double> &Boundary, vector<double> ReceivedLLR)
+    CASCL_Decoder(int CODE_LENGTH_COPY, int CRC_LENGTH_COPY, int INFO_LENGTH_COPY, int LIST_LENGTH_COPY, int SEGMENT_LENGTH_COPY, vector<bool> CRCInformation_COPY, vector<bool> &EstimatedCRCInformation, vector<bool> isFrozen_COPY, vector<int> BitInverse_COPY, vector<int> CRC_LENGTHS_COPY, vector<int> crcPolynomial_COPY, vector<int> crcPosition_COPY, vector<int> INFO_LENGTHS_COPY, vector<double> Boundary_COPY, vector<double> ReceivedLLR)
     {
-        bool preError = false;        //以前に誤りがあったか
-        bool thisError = false;       //本bitに誤りがあったか
-        bool informationTurn = false; //本bitは情報ビットであったか
-        bool bit;                     //本bit
+        crcNum = 0;
+        infoNum = 0;
 
         /*Initialization*/
-        InitializeDataStructures(CODE_LENGTH_COPY, CRC_LENGTH_COPY, INFO_LENGTH_COPY, LIST_LENGTH_COPY, isFrozen_COPY, BitInverse_COPY);
+        InitializeDataStructures(CODE_LENGTH_COPY, CRC_LENGTH_COPY, INFO_LENGTH_COPY, LIST_LENGTH_COPY, SEGMENT_LENGTH_COPY, CRCInformation_COPY, isFrozen_COPY, BitInverse_COPY, CRC_LENGTHS_COPY, crcPolynomial_COPY, crcPosition_COPY, INFO_LENGTHS_COPY, Boundary_COPY);
         int l = assignInitialPath();
         vector<vector<double>> &P_0 = getArrayPointer_P(0, l);
         for (int beta = 0; beta < CODE_LENGTH; beta++)
@@ -71,76 +84,88 @@ public:
         for (int phi = 0; phi < CODE_LENGTH; phi++)
         {
             bool phiMod = phi % 2;
-            recursivelyCalcP(stageNum - 1, phi);
-            if (isFrozen[phi] == 1)
+            recursivelyCalcP(STAGE_LENGTH - 1, phi);
+            if (isFrozen[phi])
             {
                 for (int l = 0; l < LIST_LENGTH; l++)
                 {
                     if (activePath[l] == false)
                         continue;
-                    vector<vector<bool>> &C_m = getArrayPointer_C(stageNum - 1, l);
+                    vector<vector<bool>> &C_m = getArrayPointer_C(STAGE_LENGTH - 1, l);
                     C_m[0][phiMod] = 0;
                 }
             }
             else
             {
                 continuePaths_UnfrozenBit(phi);
-                informationTurn = true;
+                infoNum++;
             }
 
-            vector<vector<double>> &P_m = getArrayPointer_P(stageNum - 1, l);
-            double calculatedLLR = log(P_m[0][0] / P_m[0][1]);
-            /*判定*/
-            if (calculatedLLR >= 0)
-                bit = 0;
-            else
-                bit = 1;
-
-            if (bit != InputArray[phi])
-                thisError = true;
-            /*判定-end*/
-
-            if (preError == false && thisError == true)
-                Boundary[phi] = max(Boundary[phi], fabs(calculatedLLR));
-
-            if (preError == false && thisError == true && informationTurn == true)
-                preError = true;
-
-            thisError = false;
-
-            informationTurn = false;
-
             if (phiMod == 1)
-                recursivelyUpdateC(stageNum - 1, phi);
+                recursivelyUpdateC(STAGE_LENGTH - 1, phi);
+
+            if (phi == crcPosition[crcNum])
+            {
+                getCodeword(EstimatedCRCInformation);
+                crcNum++;
+                infoNum = 0;
+            }
         }
         /*Main loop-end*/
-        getCodeword(EstimatedCRCInfo);
     }
-    void InitializeDataStructures(int CODE_LENGTH_COPY, int CRC_LENGTH_COPY, int INFO_LENGTH_COPY, int LIST_LENGTH_COPY, vector<bool> isFrozen_COPY, vector<int> BitInverse_COPY)
+    void InitializeDataStructures(int CODE_LENGTH_COPY, int CRC_LENGTH_COPY, int INFO_LENGTH_COPY, int LIST_LENGTH_COPY, int SEGMENT_LENGTH_COPY, vector<bool> CRCInformation_COPY, vector<bool> isFrozen_COPY, vector<int> BitInverse_COPY, vector<int> CRC_LENGTHS_COPY, vector<int> crcPolynomial_COPY, vector<int> crcPosition_COPY, vector<int> INFO_LENGTHS_COPY, vector<double> Boundary_COPY)
     {
+        SEGMENT_LENGTH = SEGMENT_LENGTH_COPY;
+
         CODE_LENGTH = CODE_LENGTH_COPY;
         CRC_LENGTH = CRC_LENGTH_COPY;
         INFO_LENGTH = INFO_LENGTH_COPY;
         LIST_LENGTH = LIST_LENGTH_COPY;
+
+        CRC_LENGTHS.resize(SEGMENT_LENGTH);
+        crcPolynomial.resize(SEGMENT_LENGTH);
+        crcPosition.resize(SEGMENT_LENGTH);
+        INFO_LENGTHS.resize(SEGMENT_LENGTH);
+
+        Codeword.resize(SEGMENT_LENGTH);
+        for (int i = 0; i < SEGMENT_LENGTH; i++)
+        {
+            CRC_LENGTHS[i] = CRC_LENGTHS_COPY[i];
+            crcPolynomial[i] = crcPolynomial_COPY[i];
+            crcPosition[i] = crcPosition_COPY[i];
+            INFO_LENGTHS[i] = INFO_LENGTHS_COPY[i];
+            Codeword.at(i).resize(LIST_LENGTH);
+        }
+        for (int i = 0; i < SEGMENT_LENGTH; i++)
+            for (int l = 0; l < LIST_LENGTH; l++)
+                Codeword.at(i).at(l).resize(CRC_LENGTHS.at(i) + INFO_LENGTHS.at(i));
+
         isFrozen.resize(CODE_LENGTH);
         BitInverse.resize(CODE_LENGTH);
+        Boundary.resize(CODE_LENGTH);
         for (int i = 0; i < CODE_LENGTH; i++)
         {
             isFrozen[i] = isFrozen_COPY[i];
             BitInverse[i] = BitInverse_COPY[i];
+            Boundary[i] = Boundary_COPY[i];
         }
-        stageNum = log2(CODE_LENGTH) + 1;
-        initializeCRC(CRC_LENGTH, crcPolynomial);
+        for (int i = 0; i < CRCInformation_COPY.size(); i++)
+        {
+            CRCInformation.push_back(CRCInformation_COPY.at(i));
+        }
+
+        STAGE_LENGTH = log2(CODE_LENGTH) + 1;
         activePath.resize(LIST_LENGTH, false);
-        inactiveArrayIndices_P.resize(stageNum);
-        pathIndexToArrayIndex_P.resize(stageNum);
-        arrayReferenceCount_P.resize(stageNum);
-        inactiveArrayIndices_C.resize(stageNum);
-        pathIndexToArrayIndex_C.resize(stageNum);
-        arrayReferenceCount_C.resize(stageNum);
-        arrayPointer_P.resize(stageNum);
-        arrayPointer_C.resize(stageNum);
-        for (int lambda = 0; lambda < stageNum; lambda++)
+        inactiveArrayIndices_P.resize(STAGE_LENGTH);
+        pathIndexToArrayIndex_P.resize(STAGE_LENGTH);
+        arrayReferenceCount_P.resize(STAGE_LENGTH);
+        inactiveArrayIndices_C.resize(STAGE_LENGTH);
+        pathIndexToArrayIndex_C.resize(STAGE_LENGTH);
+        arrayReferenceCount_C.resize(STAGE_LENGTH);
+        arrayPointer_P.resize(STAGE_LENGTH);
+        arrayPointer_C.resize(STAGE_LENGTH);
+
+        for (int lambda = 0; lambda < STAGE_LENGTH; lambda++)
         {
             pathIndexToArrayIndex_P[lambda].resize(LIST_LENGTH);
             arrayReferenceCount_P[lambda].resize(LIST_LENGTH);
@@ -149,21 +174,23 @@ public:
             arrayPointer_P[lambda].resize(LIST_LENGTH);
             arrayPointer_C[lambda].resize(LIST_LENGTH);
         }
-        for (int lambda = 0; lambda < stageNum; lambda++)
+
+        for (int lambda = 0; lambda < STAGE_LENGTH; lambda++)
         {
             for (int s = 0; s < LIST_LENGTH; s++)
             {
                 inactiveArrayIndices_P[lambda].push(s);
                 inactiveArrayIndices_C[lambda].push(s);
-                arrayPointer_P[lambda][s].resize(1 << (stageNum - 1 - lambda));
-                arrayPointer_C[lambda][s].resize(1 << (stageNum - 1 - lambda));
-                for (int beta = 0; beta < (1 << (stageNum - 1 - lambda)); beta++)
+                arrayPointer_P[lambda][s].resize(1 << (STAGE_LENGTH - 1 - lambda));
+                arrayPointer_C[lambda][s].resize(1 << (STAGE_LENGTH - 1 - lambda));
+                for (int beta = 0; beta < (1 << (STAGE_LENGTH - 1 - lambda)); beta++)
                 {
                     arrayPointer_P[lambda][s][beta].resize(2);
                     arrayPointer_C[lambda][s][beta].resize(2);
                 }
             }
         }
+
         for (int l = 0; l < LIST_LENGTH; l++)
             inactivePathIndices.push(l);
     }
@@ -173,7 +200,7 @@ public:
         l = inactivePathIndices.top();
         inactivePathIndices.pop();
         activePath[l] = true;
-        for (int lambda = 0; lambda < stageNum; lambda++)
+        for (int lambda = 0; lambda < STAGE_LENGTH; lambda++)
         {
             s = inactiveArrayIndices_P[lambda].top();
             inactiveArrayIndices_P[lambda].pop();
@@ -193,7 +220,7 @@ public:
         l_ = inactivePathIndices.top();
         inactivePathIndices.pop();
         activePath[l_] = true;
-        for (int lambda = 0; lambda < stageNum; lambda++)
+        for (int lambda = 0; lambda < STAGE_LENGTH; lambda++)
         {
             s = pathIndexToArrayIndex_P[lambda][l];
             pathIndexToArrayIndex_P[lambda][l_] = s;
@@ -210,7 +237,7 @@ public:
         int s;
         activePath[l] = false;
         inactivePathIndices.push(l);
-        for (int lambda = 0; lambda < stageNum; lambda++)
+        for (int lambda = 0; lambda < STAGE_LENGTH; lambda++)
         {
             s = pathIndexToArrayIndex_P[lambda][l];
             arrayReferenceCount_P[lambda][s]--;
@@ -233,7 +260,7 @@ public:
         {
             s_ = inactiveArrayIndices_P[lambda].top();
             inactiveArrayIndices_P[lambda].pop();
-            for (int i = 0; i < (1 << (stageNum - 1 - lambda)); i++)
+            for (int i = 0; i < (1 << (STAGE_LENGTH - 1 - lambda)); i++)
             {
                 for (int j = 0; j < 2; j++)
                     arrayPointer_P[lambda][s_][i][j] = arrayPointer_P[lambda][s][i][j];
@@ -254,7 +281,7 @@ public:
         {
             s_ = inactiveArrayIndices_C[lambda].top();
             inactiveArrayIndices_C[lambda].pop();
-            for (int i = 0; i < (1 << (stageNum - 1 - lambda)); i++)
+            for (int i = 0; i < (1 << (STAGE_LENGTH - 1 - lambda)); i++)
             {
                 for (int j = 0; j < 2; j++)
                     arrayPointer_C[lambda][s_][i][j] = arrayPointer_C[lambda][s][i][j];
@@ -281,7 +308,7 @@ public:
             vector<vector<double>> &P_lambda = getArrayPointer_P(lambda, l);
             vector<vector<double>> &P_lambda_1 = getArrayPointer_P(lambda - 1, l);
             vector<vector<bool>> &C_lambda = getArrayPointer_C(lambda, l);
-            for (int beta = 0; beta < (1 << (stageNum - 1 - lambda)); beta++)
+            for (int beta = 0; beta < (1 << (STAGE_LENGTH - 1 - lambda)); beta++)
             {
                 if (phiMod == 0)
                 {
@@ -310,7 +337,7 @@ public:
             if (activePath[l] == false)
                 continue;
             vector<vector<double>> &P_lambda = getArrayPointer_P(lambda, l);
-            for (int beta = 0; beta < (1 << (stageNum - 1 - lambda)); beta++)
+            for (int beta = 0; beta < (1 << (STAGE_LENGTH - 1 - lambda)); beta++)
             {
                 for (int u = 0; u < 2; u++)
                     P_lambda[beta][u] /= sigma;
@@ -328,7 +355,7 @@ public:
                 continue;
             vector<vector<bool>> &C_lambda = getArrayPointer_C(lambda, l);
             vector<vector<bool>> &C_lambda_1 = getArrayPointer_C(lambda - 1, l);
-            for (int beta = 0; beta < (1 << (stageNum - 1 - lambda)); beta++)
+            for (int beta = 0; beta < (1 << (STAGE_LENGTH - 1 - lambda)); beta++)
             {
                 C_lambda_1[2 * beta][psiMod] = (C_lambda[beta][0] ^ C_lambda[beta][1]);
                 C_lambda_1[2 * beta + 1][psiMod] = C_lambda[beta][1];
@@ -340,6 +367,47 @@ public:
     void continuePaths_UnfrozenBit(int phi)
     {
         bool phiMod = phi % 2;
+        set<int> S;
+        for (int l = 0; l < LIST_LENGTH; l++)
+        {
+            if (activePath.at(l) == false)
+                continue;
+            if (S.find(l) != S.end())
+                continue;
+            vector<vector<bool>> &C_m = getArrayPointer_C(STAGE_LENGTH - 1, l);
+            vector<vector<double>> &P_m = getArrayPointer_P(STAGE_LENGTH - 1, l);
+            double LLR = log(P_m.at(0).at(0) / P_m.at(0).at(1));
+            int sizeStack = inactivePathIndices.size();
+
+            bool bit;
+            if (P_m.at(0).at(0) >= P_m.at(0).at(1))
+                bit = 0;
+            else
+                bit = 1;
+
+            if ((fabs(LLR) <= Boundary.at(phi)) && (0 < sizeStack))
+            {
+
+                C_m.at(0).at(phiMod) = bit;
+                Codeword.at(crcNum).at(l).at(infoNum) = (bit ^ 1);
+                int l_ = clonePath(l);
+                C_m = getArrayPointer_C(STAGE_LENGTH - 1, l_);
+                C_m.at(0).at(phiMod) = (bit ^ 1);
+                for (int i = 0; i < infoNum; i++)
+                    Codeword.at(crcNum).at(l_).at(i) = Codeword.at(crcNum).at(l).at(i);
+                Codeword.at(crcNum).at(l_).at(infoNum) = (bit);
+                S.insert(l_);
+            }
+            else
+            {
+                C_m.at(0).at(phiMod) = bit;
+                Codeword.at(crcNum).at(l).at(infoNum) = bit;
+            }
+        }
+    }
+    /*void continuePaths_UnfrozenBit(int phi)
+    {
+        bool phiMod = phi % 2;
         vector<vector<double>> probForks(LIST_LENGTH, vector<double>(2));
         vector<vector<bool>> contForks(LIST_LENGTH, vector<bool>(2));
         vector<pair<double, pair<int, int>>> list;
@@ -349,7 +417,7 @@ public:
         {
             if (activePath[l] == true)
             {
-                vector<vector<double>> &P_m = getArrayPointer_P(stageNum - 1, l);
+                vector<vector<double>> &P_m = getArrayPointer_P(STAGE_LENGTH - 1, l);
                 probForks[l][0] = P_m[0][0];
                 probForks[l][1] = P_m[0][1];
                 i++;
@@ -393,24 +461,92 @@ public:
         {
             if (contForks[l][0] == false && contForks[l][1] == false)
                 continue;
-            vector<vector<bool>> &C_m = getArrayPointer_C(stageNum - 1, l);
+            vector<vector<bool>> &C_m = getArrayPointer_C(STAGE_LENGTH - 1, l);
             if (contForks[l][0] == true && contForks[l][1] == true)
             {
                 C_m[0][phiMod] = 0;
+
+                Codeword.at(crcNum).at(l).at(infoNum) = 1;
+
                 int l_ = clonePath(l);
-                C_m = getArrayPointer_C(stageNum - 1, l_);
+                C_m = getArrayPointer_C(STAGE_LENGTH - 1, l_);
                 C_m[0][phiMod] = 1;
+
+                for (int i = 0; i < infoNum; i++)
+                    Codeword.at(crcNum).at(l_).at(i) = Codeword.at(crcNum).at(l).at(i);
+                Codeword.at(crcNum).at(l_).at(infoNum) = 0;
             }
             else
             {
                 if (contForks[l][0] == true)
+                {
                     C_m[0][phiMod] = 0;
+
+                    Codeword.at(crcNum).at(l).at(infoNum) = 0;
+                }
+
                 else
+                {
                     C_m[0][phiMod] = 1;
+
+                    Codeword.at(crcNum).at(l).at(infoNum) = 1;
+                }
+            }
+        }
+    }*/
+    void getCodeword(vector<bool> &EstimatedCRCInformation)
+    {
+        vector<pair<double, int>> list;
+        list.resize(LIST_LENGTH);
+        for (int l = 0; l < LIST_LENGTH; l++)
+        {
+            if (activePath.at(l) == false)
+                continue;
+            vector<vector<bool>> &C_m = getArrayPointer_C(STAGE_LENGTH - 1, l);
+            vector<vector<double>> &P_m = getArrayPointer_P(STAGE_LENGTH - 1, l);
+            list.at(l).first = P_m.at(0).at(C_m.at(0).at(1));
+            list.at(l).second = l;
+        }
+        sort(list.rbegin(), list.rend());
+        bool flag = true;
+        if (crcPolynomial.at(crcNum) != 0)
+        {
+            for (int l = 0; l < LIST_LENGTH; l++)
+            {
+                if (activePath.at(list.at(l).second) == false)
+                    continue;
+                if (checkCRC(CRC_LENGTHS.at(crcNum), INFO_LENGTHS.at(crcNum), crcPolynomial.at(crcNum), Codeword.at(crcNum).at(list.at(l).second)) == true)
+                {
+                    flag = false;
+                    for (int i = 0; i < INFO_LENGTHS.at(crcNum) + CRC_LENGTHS.at(crcNum); i++)
+                        EstimatedCRCInformation.push_back(Codeword.at(crcNum).at(list.at(l).second).at(i));
+                    for (int i = 0; i < LIST_LENGTH; i++)
+                    {
+                        if (activePath.at(i) == false)
+                            continue;
+                        if (i == list.at(l).second)
+                            continue;
+                        killPath(i);
+                    }
+                    break;
+                }
+            }
+        }
+        if (flag)
+        {
+            for (int i = 0; i < (INFO_LENGTHS.at(crcNum) + CRC_LENGTHS.at(crcNum)); i++)
+                EstimatedCRCInformation.push_back(Codeword.at(crcNum).at(list.at(0).second).at(i));
+            for (int i = 0; i < LIST_LENGTH; i++)
+            {
+                if (activePath.at(i) == false)
+                    continue;
+                if (i == list.at(0).second)
+                    continue;
+                killPath(i);
             }
         }
     }
-    void getCodeword(vector<bool> &EstimatedCRCInfo)
+    /*void getCodeword(vector<bool> &EstimatedCRCInfo)
     {
         vector<pair<double, pair<int, int>>> list;
         list.resize(LIST_LENGTH);
@@ -418,20 +554,20 @@ public:
         {
             if (activePath[l] == false)
                 continue;
-            vector<vector<bool>> &C_m = getArrayPointer_C(stageNum - 1, l);
-            vector<vector<double>> &P_m = getArrayPointer_P(stageNum - 1, l);
+            vector<vector<bool>> &C_m = getArrayPointer_C(STAGE_LENGTH - 1, l);
+            vector<vector<double>> &P_m = getArrayPointer_P(STAGE_LENGTH - 1, l);
             list[l].first = P_m[0][C_m[0][1]];
             list[l].second.first = l;
         }
         sort(list.rbegin(), list.rend());
         bool flag = true;
-        if (crcPolynomial != 0)
+        if (crcPolynomial.at(crcNum) != 0)
         {
             for (int l = 0; l < LIST_LENGTH; l++)
             {
                 //C_0更新
                 vector<vector<bool>> &C_0 = getArrayPointer_C(0, list[l].second.first);
-                vector<bool> C, U;
+                vector<bool> C, U, damy;
                 C.resize(CODE_LENGTH);
                 U.resize(CODE_LENGTH);
                 for (int beta = 0; beta < CODE_LENGTH; beta++)
@@ -441,10 +577,26 @@ public:
                 for (int beta = 0; beta < CODE_LENGTH; beta++)
                 {
                     if (isFrozen[beta] == 0)
-                        EstimatedCRCInfo[infoCount++] = U[beta];
+                    {
+
+                        damy.push_back(U[beta]);
+                    }
                 }
-                if (checkCRC(CRC_LENGTH, INFO_LENGTH, crcPolynomial, EstimatedCRCInfo) == true)
+                if (checkCRC(CRC_LENGTHS.at(crcNum), INFO_LENGTHS.at(crcNum), crcPolynomial.at(crcNum), damy) == true)
                 {
+                    cout << endl;
+                    cout << "list: " << list.at(l).second.first << endl;
+                    cout << endl;
+
+                    for (int i = 0; i < damy.size(); i++)
+                    {
+                        EstimatedCRCInfo.push_back(damy.at(i));
+
+                        cout << i << " d:" << damy.at(i) << " c:" << Codeword.at(crcNum).at(list.at(l).second.first).at(i);
+                        if (damy.at(i) != Codeword.at(crcNum).at(list.at(l).second.first).at(i))
+                            cout << "Error! ";
+                        cout << endl;
+                    }
                     flag = false;
                     break;
                 }
@@ -452,6 +604,8 @@ public:
         }
         if (flag)
         {
+            cout << "None" << endl;
+
             vector<vector<bool>> &C_0 = getArrayPointer_C(0, list[0].second.first);
             vector<bool> C, U;
             C.resize(CODE_LENGTH);
@@ -463,8 +617,10 @@ public:
             for (int beta = 0; beta < CODE_LENGTH; beta++)
             {
                 if (isFrozen[beta] == 0)
-                    EstimatedCRCInfo[infoCount++] = U[beta];
+                {
+                    EstimatedCRCInfo.push_back(U[beta]);
+                }
             }
         }
-    }
+    }*/
 };
