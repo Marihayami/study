@@ -6,7 +6,7 @@ signed main()
     /*パラメータ*/
     double R = 0.5; //コードレート
 
-    int LIMIT_REPEAT_NUM = 1000;
+    int LIMIT_REPEAT_NUM = 10000;
 
     int CODE_LENGTH = 1024;
     int CRC_LENGTH = 16;
@@ -17,15 +17,15 @@ signed main()
 
     double Rate = double(INFO_LENGTH) / CODE_LENGTH; //実行ビットレート
 
-    int segNum = 6;
+    /*int segNum = 6;
     vector<int> CRC_LENGTHS = {5, 4, 4, 1, 1, 1};
     vector<int> crcPolynomial(segNum);
-    vector<int> crcPosition = {511, 767, 895, 959, 991, 1023};
-    /*int segNum = 1;
+    vector<int> crcPosition = {511, 767, 895, 959, 991, 1023};*/
+
+    int segNum = 1;
     vector<int> CRC_LENGTHS = {16};
     vector<int> crcPolynomial(segNum);
-    vector<int> crcPosition = {1023};*/
-
+    vector<int> crcPosition = {1023};
     /*パラメータ-end*/
 
     /*宣言*/

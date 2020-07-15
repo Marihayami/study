@@ -31,7 +31,6 @@ class CASCL_Decoder
 {
     int SEGMENT_LENGTH;
     int crcNum;
-    int infoNum;
 
     int STAGE_LENGTH;
     int CODE_LENGTH;
@@ -50,7 +49,9 @@ class CASCL_Decoder
 
     vector<double> Boundary;
 
-    vector<vector<vector<bool>>> Codeword;
+    vector<vector<bool>> Codeword;
+
+    vector<int> parent;
 
     stack<int> inactivePathIndices;
     vector<bool> activePath;
@@ -67,8 +68,6 @@ public:
     CASCL_Decoder(int CODE_LENGTH_COPY, int CRC_LENGTH_COPY, int INFO_LENGTH_COPY, int LIST_LENGTH_COPY, int SEGMENT_LENGTH_COPY, vector<bool> CRCInformation_COPY, vector<bool> &EstimatedCRCInformation, vector<bool> isFrozen_COPY, vector<int> BitInverse_COPY, vector<int> CRC_LENGTHS_COPY, vector<int> crcPolynomial_COPY, vector<int> crcPosition_COPY, vector<int> INFO_LENGTHS_COPY, vector<double> Boundary_COPY, vector<double> ReceivedLLR)
     {
         crcNum = 0;
-        infoNum = 0;
-
         /*Initialization*/
         InitializeDataStructures(CODE_LENGTH_COPY, CRC_LENGTH_COPY, INFO_LENGTH_COPY, LIST_LENGTH_COPY, SEGMENT_LENGTH_COPY, CRCInformation_COPY, isFrozen_COPY, BitInverse_COPY, CRC_LENGTHS_COPY, crcPolynomial_COPY, crcPosition_COPY, INFO_LENGTHS_COPY, Boundary_COPY);
         int l = assignInitialPath();
@@ -98,7 +97,24 @@ public:
             else
             {
                 continuePaths_UnfrozenBit(phi);
-                infoNum++;
+            }
+
+            for (int l = 0; l < LIST_LENGTH; l++)
+            {
+                if (activePath[l] == false)
+                    continue;
+                if (parent[l] != l)
+                {
+                    for (int i = 0; i < phi; i++)
+                    {
+                        const bool temp = Codeword.at(parent.at(l)).at(i);
+                        Codeword.at(l).at(i) = temp;
+                    }
+                }
+                parent[l] = l;
+                vector<vector<bool>> &C_m = getArrayPointer_C(STAGE_LENGTH - 1, l);
+                const bool temp = C_m[0][phiMod];
+                Codeword.at(l).at(phi) = temp;
             }
 
             if (phiMod == 1)
@@ -108,7 +124,6 @@ public:
             {
                 getCodeword(EstimatedCRCInformation);
                 crcNum++;
-                infoNum = 0;
             }
         }
         /*Main loop-end*/
@@ -127,18 +142,21 @@ public:
         crcPosition.resize(SEGMENT_LENGTH);
         INFO_LENGTHS.resize(SEGMENT_LENGTH);
 
-        Codeword.resize(SEGMENT_LENGTH);
+        Codeword.resize(LIST_LENGTH);
+
+        parent.resize(LIST_LENGTH);
+        for (int l = 0; l < LIST_LENGTH; l++)
+        {
+            parent[l] = l;
+        }
+
         for (int i = 0; i < SEGMENT_LENGTH; i++)
         {
             CRC_LENGTHS[i] = CRC_LENGTHS_COPY[i];
             crcPolynomial[i] = crcPolynomial_COPY[i];
             crcPosition[i] = crcPosition_COPY[i];
             INFO_LENGTHS[i] = INFO_LENGTHS_COPY[i];
-            Codeword.at(i).resize(LIST_LENGTH);
         }
-        for (int i = 0; i < SEGMENT_LENGTH; i++)
-            for (int l = 0; l < LIST_LENGTH; l++)
-                Codeword.at(i).at(l).resize(CRC_LENGTHS.at(i) + INFO_LENGTHS.at(i));
 
         isFrozen.resize(CODE_LENGTH);
         BitInverse.resize(CODE_LENGTH);
@@ -192,7 +210,10 @@ public:
         }
 
         for (int l = 0; l < LIST_LENGTH; l++)
+        {
             inactivePathIndices.push(l);
+            Codeword[l].resize(CODE_LENGTH);
+        }
     }
     int assignInitialPath(void)
     {
@@ -364,7 +385,7 @@ public:
         if (psiMod == 1)
             recursivelyUpdateC(lambda - 1, psi);
     }
-    void continuePaths_UnfrozenBit(int phi)
+    /*void continuePaths_UnfrozenBit(int phi)
     {
         bool phiMod = phi % 2;
         set<int> S;
@@ -404,8 +425,8 @@ public:
                 Codeword.at(crcNum).at(l).at(infoNum) = bit;
             }
         }
-    }
-    /*void continuePaths_UnfrozenBit(int phi)
+    }*/
+    void continuePaths_UnfrozenBit(int phi)
     {
         bool phiMod = phi % 2;
         vector<vector<double>> probForks(LIST_LENGTH, vector<double>(2));
@@ -465,35 +486,21 @@ public:
             if (contForks[l][0] == true && contForks[l][1] == true)
             {
                 C_m[0][phiMod] = 0;
-
-                Codeword.at(crcNum).at(l).at(infoNum) = 1;
-
                 int l_ = clonePath(l);
+                parent[l_] = l;
                 C_m = getArrayPointer_C(STAGE_LENGTH - 1, l_);
                 C_m[0][phiMod] = 1;
-
-                for (int i = 0; i < infoNum; i++)
-                    Codeword.at(crcNum).at(l_).at(i) = Codeword.at(crcNum).at(l).at(i);
-                Codeword.at(crcNum).at(l_).at(infoNum) = 0;
             }
             else
             {
                 if (contForks[l][0] == true)
-                {
+
                     C_m[0][phiMod] = 0;
-
-                    Codeword.at(crcNum).at(l).at(infoNum) = 0;
-                }
-
                 else
-                {
                     C_m[0][phiMod] = 1;
-
-                    Codeword.at(crcNum).at(l).at(infoNum) = 1;
-                }
             }
         }
-    }*/
+    }
     void getCodeword(vector<bool> &EstimatedCRCInformation)
     {
         vector<pair<double, int>> list;
@@ -509,17 +516,37 @@ public:
         }
         sort(list.rbegin(), list.rend());
         bool flag = true;
+
         if (crcPolynomial.at(crcNum) != 0)
         {
             for (int l = 0; l < LIST_LENGTH; l++)
             {
                 if (activePath.at(list.at(l).second) == false)
                     continue;
-                if (checkCRC(CRC_LENGTHS.at(crcNum), INFO_LENGTHS.at(crcNum), crcPolynomial.at(crcNum), Codeword.at(crcNum).at(list.at(l).second)) == true)
+
+                vector<bool> damy;
+                int infoNum = 0;
+                int start = 0;
+                if (crcNum > 0)
+                    start = crcPosition[crcNum - 1] + 1;
+
+                for (int beta = start; beta < CODE_LENGTH; beta++)
                 {
+                    if (isFrozen[beta] == 0)
+                    {
+                        damy.push_back(Codeword.at(list.at(l).second).at(beta));
+                        infoNum++;
+                        if (infoNum == INFO_LENGTHS.at(crcNum) + CRC_LENGTHS.at(crcNum))
+                            break;
+                    }
+                }
+                
+                if (checkCRC(CRC_LENGTHS.at(crcNum), INFO_LENGTHS.at(crcNum), crcPolynomial.at(crcNum), damy) == true)
+                {
+                
                     flag = false;
                     for (int i = 0; i < INFO_LENGTHS.at(crcNum) + CRC_LENGTHS.at(crcNum); i++)
-                        EstimatedCRCInformation.push_back(Codeword.at(crcNum).at(list.at(l).second).at(i));
+                        EstimatedCRCInformation.push_back(damy.at(i));
                     for (int i = 0; i < LIST_LENGTH; i++)
                     {
                         if (activePath.at(i) == false)
@@ -534,8 +561,22 @@ public:
         }
         if (flag)
         {
-            for (int i = 0; i < (INFO_LENGTHS.at(crcNum) + CRC_LENGTHS.at(crcNum)); i++)
-                EstimatedCRCInformation.push_back(Codeword.at(crcNum).at(list.at(0).second).at(i));
+            
+            int infoNum = 0;
+            int start = 0;
+            if (crcNum > 0)
+                start = crcPosition[crcNum - 1] + 1;
+
+            for (int beta = start; beta < CODE_LENGTH; beta++)
+            {
+                if (isFrozen[beta] == 0)
+                {
+                    EstimatedCRCInformation.push_back(Codeword.at(list.at(0).second).at(beta));
+                    infoNum++;
+                    if (infoNum == INFO_LENGTHS.at(crcNum) + CRC_LENGTHS.at(crcNum))
+                        break;
+                }
+            }
             for (int i = 0; i < LIST_LENGTH; i++)
             {
                 if (activePath.at(i) == false)
@@ -546,7 +587,9 @@ public:
             }
         }
     }
-    /*void getCodeword(vector<bool> &EstimatedCRCInfo)
+
+    /*
+    void getCodeword(vector<bool> &EstimatedCRCInfo)
     {
         vector<pair<double, pair<int, int>>> list;
         list.resize(LIST_LENGTH);
@@ -578,24 +621,14 @@ public:
                 {
                     if (isFrozen[beta] == 0)
                     {
-
                         damy.push_back(U[beta]);
                     }
                 }
                 if (checkCRC(CRC_LENGTHS.at(crcNum), INFO_LENGTHS.at(crcNum), crcPolynomial.at(crcNum), damy) == true)
                 {
-                    cout << endl;
-                    cout << "list: " << list.at(l).second.first << endl;
-                    cout << endl;
-
                     for (int i = 0; i < damy.size(); i++)
                     {
                         EstimatedCRCInfo.push_back(damy.at(i));
-
-                        cout << i << " d:" << damy.at(i) << " c:" << Codeword.at(crcNum).at(list.at(l).second.first).at(i);
-                        if (damy.at(i) != Codeword.at(crcNum).at(list.at(l).second.first).at(i))
-                            cout << "Error! ";
-                        cout << endl;
                     }
                     flag = false;
                     break;
@@ -604,8 +637,6 @@ public:
         }
         if (flag)
         {
-            cout << "None" << endl;
-
             vector<vector<bool>> &C_0 = getArrayPointer_C(0, list[0].second.first);
             vector<bool> C, U;
             C.resize(CODE_LENGTH);
